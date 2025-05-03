@@ -1,6 +1,6 @@
-//#define UART_ENABLED 1
+#define UART_ENABLED 1
 
-#define PULLDOWN1_ENABLED 1
+//#define PULLDOWN1_ENABLED 1
 #define PULLDOWN2_ENABLED 1
 
 // no usb, always glitching
@@ -21,9 +21,14 @@
 #include "hardware/regs/usb.h" // USB hardware registers from pico-sdk
 #include "hardware/structs/usb.h" // USB hardware structs from pico-sdk
 #include "hardware/resets.h" // For resetting the native USB controller
+#include "hardware/watchdog.h"
+
+#include "hardware/gpio.h"
+#include "hardware/regs/io_bank0.h"
 
 #include "pico/multicore.h"
 #include "pico/rand.h"
+#include "pico/time.h"
 
 #include "usb_common.h"
 
@@ -41,3 +46,8 @@ extern char uartBuf[8192];
 #else
 #define UartPrint(...) (true)
 #endif
+
+//#define HDD_ACTIVITY_MONITOR 1
+
+//static inline int Uart0GetChar(void);
+void reset_ps3_sequence(void);

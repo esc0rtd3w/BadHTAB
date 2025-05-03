@@ -160,3 +160,41 @@ Log will be stored at <b>/dev_hdd0/BadHTAB.txt</b>
 8. If "Boot lv2/OtherOS" are used, it should happen now.
 9. If "Boot lv2/OtherOS" aren't used, exploit will exit. You will hear 5 seconds long beep then stop.
 10. You should return to XMB now. Enjoy the exploit!
+
+
+# Additional modifications via esc0rtd3w
+
+- Automatic reboot if glitch crashes ps3
+- Enabled UART0 for pico
+- Enabled UART1 for ps3 sb_uart input
+- Monitoring PSU standby
+- Monitoring Power ribbon connector
+- 4 status LEDs
+
+The glitch is much easier to do over and over again if it crashes, and it will ;), without having to pull power cord or flip switch on power strip.
+
+Supports automatically rebooting when it detects errors. 
+
+Monitors ps3 sb_uart for messages to control pico behavior.
+
+Many other changes included.
+
+There are still a few bugs to iron out, as far as sometimes the ps3 still gets into a crash condition where the pico cannot automatically recover and you must manually power cycle the ps3.
+
+Wires will need soldered to appropriate locations on ps3 and pico.
+
+PS3 Resistor Connections for glitch (only one required)
+pulldown1_pin_id (RQ7) -> GPIO15
+pulldown2_pin_id (RQ8) -> GPIO16
+
+PS3 Monitoring pins
+pwr_on_pin_id (PS3 ribbon connector 3.3v) -> GPIO10
+sb_uart_rx_pin (PS3 SB_TX) -> GPIO5
+standby_mon_pin_id (PSU Standby Pin 3) -> GPIO18
+hdd_activity_pin (PS3 HDD LED Anode) -> GPIO22
+
+Pico status pins
+error_led_pin (Red) -> GPIO6
+yellow_led_pin (Yellow) -> GPIO2
+green_led_pin (Green) -> GPIO21
+blue_led_pin (Blue) -> GPIO27
