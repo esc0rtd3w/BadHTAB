@@ -1,6 +1,6 @@
 #define UART_ENABLED 1
 
-//#define PULLDOWN1_ENABLED 1
+#define PULLDOWN1_ENABLED 1
 #define PULLDOWN2_ENABLED 1
 
 // no usb, always glitching
