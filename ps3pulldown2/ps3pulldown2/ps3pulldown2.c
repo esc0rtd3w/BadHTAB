@@ -20,6 +20,32 @@ static const int blue_led_pin        = 27;  // blue LED on GP27
 static const int hdd_activity_pin    = 22;  // GP22 ← PS3 HDD activity LED (active HIGH)
 #endif*/
 
+/*
+  PS3 Mainboard             Raspberry Pi Pico (USB Top)
+ .───────────────────────. .─────────── Left Header ──────────. .──────────── Right Header ────────.
+ | [RQ7] └─▶ GP15        | |  1: GP0                          ||| 40: VBUS                         |
+ | [RQ8] └─▶ GP16        | |  2: GP1                          ||| 39: VSYS ─▶ PS3_PSU_5V           |
+ | [SB_UART]└─▶ GP5      | |  3: GND ─|>|─▶ CATHODE_YELLOW    ||| 38: GND                          |
+ | [PSU_STDBY]└─▶ GP18   | |  4: GP2 ─|>|─▶ ANODE_YELLOW      ||| 37: EN                           |
+ | [PWR_ON] └─▶ GP10     | |  5: GP3                          ||| 36: 3V3_EN                       |
+ | [GND] └─────▶ GND     | |  6: GP4                          ||| 35: ADC_VREF                     |
+ '───────────────────────' |  7: GP5 ─▶ PS3_SB_TX             ||| 34: GP28                         |
+                           |  8: GND ─|>|─▶ CATHODE_RED       ||| 33: GND  ─|>|─▶ CATHODE_BLUE     |
+                           |  9: GP6 ─|>|─▶ ANODE_RED         ||| 32: GP27 ─|>|─▶ ANODE_BLUE       |
+                           | 10: GP7                          ||| 31: GP26                         |
+                           | 11: GP8                          ||| 30: RUN/RESET                    |
+                           | 12: GP9                          ||| 29: GP22                         |
+                           | 13: GND                          ||| 28: GND ─|>|─▶ CATHODE_GREEN     |
+                           | 14: GP10 ─▶ PS3_PWR_ON_RIBBON    ||| 27: GP21 ─|>|─▶ ANODE_GREEN      |
+                           | 15: GP11                         ||| 26: GP20                         |
+                           | 16: GP12                         ||| 25: GP19                         |
+                           | 17: GP13                         ||| 24: GP18 ─▶ PS3_PSU_STANDBY      |
+                           | 18: GND                          ||| 23: GND                          |
+                           | 19: GP14                         ||| 22: GP17                         |
+                           | 20: GP15 ─▶ RQ7                  ||| 21: GP16 ─▶ RQ8                  |
+                           '─────────────────────────────────'  '──────────────────────────────────'
+*/
+
 /////////////////////////////////////////////////////////////////////////////
 // ——— globals ——————————————————————————————————————————————————————
 
@@ -51,6 +77,7 @@ volatile bool linux_booted              = false;
 
 static bool set_reset_pico              = false;
 static uint32_t main_loop_runs          = 0;
+static uint32_t glitch_attempts         = 0;
 
 // init ready status before glitch
 static bool init_leds_ready = false;
@@ -620,6 +647,7 @@ void ep1_out_handler(uint8_t *buf, uint16_t len) {
         //log_printf("ep1_out_handler: USB cmd 0x%02X → do_glitch=%d\n", v, do_glitch);
         if (v == 0x44) {
             // start of a new glitch session
+            glitch_attempts++;
             log_printf("ep1_out_handler: 0x44 -> Glitch Started");
             glitch_started = true;
             sbBufIdx = 0;
@@ -1164,14 +1192,15 @@ void clear_all_flags() {
     set_sys_clock_ready = false;
     release_glitch_pin_ready = false;
     hdd_activity = false;
+    glitch_attempts = 0;
 }
 
 static void show_all_flags(void) {
     log_printf("=== Flag Status ===");
     log_printf("uart0_ready=%d, uart1_ready=%d",
                uart0_ready, uart1_ready);
-    log_printf("do_glitch=%d, is_stopped=%d, glitch_started=%d, glitch_error=%d",
-               do_glitch, is_stopped, glitch_started, glitch_error);
+    log_printf("do_glitch=%d, is_stopped=%d, glitch_started=%d, glitch_error=%d, glitch_attempts=%d",
+               do_glitch, is_stopped, glitch_started, glitch_error, glitch_attempts);
     log_printf("error_detect=%d, yellow_detect=%d, green_detect=%d, blue_detect=%d",
                error_detect, yellow_detect, green_detect, blue_detect);
     log_printf("set_voltage_ready=%d, set_sys_clock_ready=%d, release_glitch_pin_ready=%d",
@@ -1288,7 +1317,7 @@ void main(void) {
 
     // core0: detect crash or hard power-down, then restart
     while (1) {
-    
+        
         // Detecting stuck in while loop, doing nothing
         //main_loop_runs++;
         if (++main_loop_runs > 10 && !do_glitch) {
@@ -1304,6 +1333,12 @@ void main(void) {
                 //reset_pico();
                 //set_reset_pico = true;
                 //reset_ps3_sequence();
+                if (main_loop_runs > 12) {
+                    reset_ps3_sequence();
+                    sleep_ms(15000);
+                    set_reset_pico = true;
+                    break;
+                }
             } else {
                 log_printf("stuck in loop check: PSU standby LOW → powering on PS3");
                 power_on_ps3();
