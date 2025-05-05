@@ -3,13 +3,13 @@
 /////////////////////////////////////////////////////////////////////////////
 // ——— pin definitions ——————————————————————————————————————————————
 
-//static const int pulldown_pin_id     = 16;  // one-wire glitch line
-static const int pulldown1_pin_id = 15;
-static const int pulldown2_pin_id = 16;
+//static const int pulldown_pin_id   = 16;  // one-wire glitch line
+static const int pulldown1_pin_id    = 15;
+static const int pulldown2_pin_id    = 16;
 
-static const int pwr_on_pin_id       = 10;  // GP10 → PS3 “power button” trace
+static const int pwr_on_ribbon_pin   = 10;  // GP10 → PS3 “power button” trace
 static const int sb_uart_rx_pin      = 5;   // GP5 ← PS3 SB_UART TX (UART1 RX)
-static const int standby_mon_pin_id  = 18;  // GP18 ← PS3 PSU standby sense
+static const int psu_standby_pin     = 18;  // GP18 ← PS3 PSU standby sense
 
 static const int error_led_pin       = 6;   // red error LED on GP6
 static const int yellow_led_pin      = 2;   // yellow LED on GP2
@@ -23,33 +23,39 @@ static const int hdd_activity_pin    = 22;  // GP22 ← PS3 HDD activity LED (ac
 /////////////////////////////////////////////////////////////////////////////
 // ——— globals ——————————————————————————————————————————————————————
 
-volatile bool do_glitch     = false;
-volatile bool is_stopped    = false;
-volatile bool glitch_error  = false;
-volatile bool glitch_success = false;
-volatile bool hdd_activity = false;
+volatile bool do_glitch                 = false;
+volatile bool is_stopped                = false;
+volatile bool glitch_error              = false;
+volatile bool glitch_success            = false;
+volatile bool hdd_activity              = false;
 
-volatile bool error_detect  = false;
-volatile bool yellow_detect = false;
-volatile bool green_detect  = false;
-volatile bool blue_detect  = false;
+volatile bool error_detect              = false;
+volatile bool yellow_detect             = false;
+volatile bool green_detect              = false;
+volatile bool blue_detect               = false;
 
-static bool  glitch_started = false;
-static bool  set_alarm = false;
+static bool  glitch_started             = false;
+static bool  set_alarm                  = false;
 
-static bool uart0_ready = false;
-static bool uart1_ready = false;
-static bool set_voltage_ready = false;
-static bool set_sys_clock_ready = false;
-static bool release_glitch_pin_ready = false;
+static bool uart0_ready                 = false;
+static bool uart1_ready                 = false;
+static bool set_voltage_ready           = false;
+static bool set_sys_clock_ready         = false;
+static bool release_glitch_pin_ready    = false;
+static bool glitch_core_launched        = false;
 
-volatile bool os_booted     = false;
-//volatile bool lv2_booted    = false;
-volatile bool gameos_booted = false;
-volatile bool linux_booted  = false;
+volatile bool os_booted                 = false;
+//volatile bool lv2_booted              = false;
+volatile bool gameos_booted             = false;
+volatile bool linux_booted              = false;
 
-static bool set_reset_pico = false;
-static uint32_t main_loop_runs = 0;
+static bool set_reset_pico              = false;
+static uint32_t main_loop_runs          = 0;
+
+// init ready status before glitch
+static bool init_leds_ready = false;
+static bool init_power_button_ready = false;
+static bool init_psu_standby_ready = false;
 
 // UART0 buffer
 char uartBuf[8192];
@@ -273,15 +279,15 @@ static void log_plain(const char *fmt, ...) {
 
 /*
 // Pulse the PS3 power-button until PSU standby line goes high.
-// Blocks until gpio_get(standby_mon_pin_id) returns true.
+// Blocks until gpio_get(psu_standby_pin) returns true.
 static void retry_power_on(void) {
-    while (!gpio_get(standby_mon_pin_id)) {
+    while (!gpio_get(psu_standby_pin)) {
         sleep_ms(2000);
         // pulse ~0.5s
-        gpio_set_dir(pwr_on_pin_id, GPIO_OUT);
-        gpio_put(pwr_on_pin_id, 0);
+        gpio_set_dir(pwr_on_ribbon_pin, GPIO_OUT);
+        gpio_put(pwr_on_ribbon_pin, 0);
         sleep_ms(500);
-        gpio_set_dir(pwr_on_pin_id, GPIO_IN);
+        gpio_set_dir(pwr_on_ribbon_pin, GPIO_IN);
         // allow PSU to spin up a bit
         sleep_ms(3000);
     }
@@ -299,8 +305,8 @@ static void gpio_irq_handler(uint gpio, uint32_t events) {
 #endif*/
 
 static void print_pin_status(void) {
-    bool standby = gpio_get(standby_mon_pin_id);
-    bool pwr_on  = gpio_get(pwr_on_pin_id);        // only valid when in GPIO_IN
+    bool standby = gpio_get(psu_standby_pin);
+    bool pwr_on  = gpio_get(pwr_on_ribbon_pin);        // only valid when in GPIO_IN
     bool hdd     = false;
 /*#if HDD_ACTIVITY_MONITOR
     hdd = gpio_get(hdd_activity_pin);
@@ -371,7 +377,7 @@ void UartInit(void) {
     // only care if we’ve already started glitching
     if (!glitch_started) return;
     // only if PSU standby is still high (PS3 hasn’t powered off)
-    if (!gpio_get(standby_mon_pin_id)) return;
+    if (!gpio_get(psu_standby_pin)) return;
 
     // poll UART0 for any received bytes and bump timestamp if we get one
     bool saw_byte = false;
@@ -578,7 +584,7 @@ void SbUartInit(void) {
 /*static void check_uart1_activity(void) {
     // only care during a glitch session, with PSU still on
     if (!glitch_started) return;
-    if (!gpio_get(standby_mon_pin_id)) return;
+    if (!gpio_get(psu_standby_pin)) return;
 
     // how long since last char on UART1?
     uint32_t now = to_ms_since_boot(get_absolute_time());
@@ -1007,21 +1013,36 @@ void init_leds(void) {
     gpio_init(blue_led_pin);
     gpio_set_dir(blue_led_pin, GPIO_OUT);
     gpio_put(blue_led_pin, 0);
+    
+    init_leds_ready = true;
 }
 
 void init_power_button(void) {
     log_printf("init power button line");
-    gpio_init(pwr_on_pin_id);
-    gpio_set_function(pwr_on_pin_id, GPIO_FUNC_SIO);
-    gpio_set_dir(pwr_on_pin_id, GPIO_IN);
+    gpio_init(pwr_on_ribbon_pin);
+    gpio_set_function(pwr_on_ribbon_pin, GPIO_FUNC_SIO);
+    gpio_set_dir(pwr_on_ribbon_pin, GPIO_IN);
+    
+    init_power_button_ready = true;
 }
 
 void init_psu_standby(void) {
     log_printf("init PSU standby monitor");
-    gpio_init(standby_mon_pin_id);
-    gpio_set_function(standby_mon_pin_id, GPIO_FUNC_SIO);
-    gpio_set_dir(standby_mon_pin_id, GPIO_IN);
-    gpio_pull_down(standby_mon_pin_id);
+    gpio_init(psu_standby_pin);
+    gpio_set_function(psu_standby_pin, GPIO_FUNC_SIO);
+    gpio_set_dir(psu_standby_pin, GPIO_IN);
+    gpio_pull_down(psu_standby_pin);
+    
+    init_psu_standby_ready = true;
+}
+
+static bool init_ready(void) {
+    if (init_leds_ready && init_power_button_ready && init_psu_standby_ready) {
+        return true;  
+    }
+    else {
+        return false;
+    }
 }
 
 void reset_ps3_sequence(void) {
@@ -1032,8 +1053,8 @@ void reset_ps3_sequence(void) {
 
     // hold power-button low for 15s (force off)
     log_printf("hold power button low for 15s (force off)");
-    gpio_set_dir(pwr_on_pin_id, GPIO_OUT);
-    gpio_put(pwr_on_pin_id, 0);
+    gpio_set_dir(pwr_on_ribbon_pin, GPIO_OUT);
+    gpio_put(pwr_on_ribbon_pin, 0);
     sleep_ms(15000);
 
     // turn LEDs off
@@ -1043,27 +1064,27 @@ void reset_ps3_sequence(void) {
 
     // release button
     log_printf("release button");
-    gpio_set_dir(pwr_on_pin_id, GPIO_IN);
-    //io_bank0_hw->io[pwr_on_pin_id].ctrl = GPIO_FUNC_NULL << IO_BANK0_GPIO0_CTRL_FUNCSEL_LSB;
-    //gpio_set_pulls(pwr_on_pin_id, false, false);
+    gpio_set_dir(pwr_on_ribbon_pin, GPIO_IN);
+    //io_bank0_hw->io[pwr_on_ribbon_pin].ctrl = GPIO_FUNC_NULL << IO_BANK0_GPIO0_CTRL_FUNCSEL_LSB;
+    //gpio_set_pulls(pwr_on_ribbon_pin, false, false);
     sleep_ms(6000);
 
     // initial short press to turn on
     log_printf("initial short press to turn on");
-    gpio_set_dir(pwr_on_pin_id, GPIO_OUT);
-    gpio_put(pwr_on_pin_id, 0);
+    gpio_set_dir(pwr_on_ribbon_pin, GPIO_OUT);
+    gpio_put(pwr_on_ribbon_pin, 0);
     sleep_ms(800);
-    gpio_set_dir(pwr_on_pin_id, GPIO_IN);
-    //io_bank0_hw->io[pwr_on_pin_id].ctrl = GPIO_FUNC_NULL << IO_BANK0_GPIO0_CTRL_FUNCSEL_LSB;
-    //gpio_set_pulls(pwr_on_pin_id, false, false);
+    gpio_set_dir(pwr_on_ribbon_pin, GPIO_IN);
+    //io_bank0_hw->io[pwr_on_ribbon_pin].ctrl = GPIO_FUNC_NULL << IO_BANK0_GPIO0_CTRL_FUNCSEL_LSB;
+    //gpio_set_pulls(pwr_on_ribbon_pin, false, false);
 }
 
 static void power_on_ps3(void) {
     log_printf("power on ps3");
-    gpio_set_dir(pwr_on_pin_id, GPIO_OUT);
-    gpio_put(pwr_on_pin_id, 0);
+    gpio_set_dir(pwr_on_ribbon_pin, GPIO_OUT);
+    gpio_put(pwr_on_ribbon_pin, 0);
     sleep_ms(800);
-    gpio_set_dir(pwr_on_pin_id, GPIO_IN);
+    gpio_set_dir(pwr_on_ribbon_pin, GPIO_IN);
 }
 
 /*static void retry_power_on(void) {
@@ -1074,14 +1095,14 @@ static void power_on_ps3(void) {
         blink_leds(combo, 2, 200, 200, 5);
         
         // if the PS3 is off, turn it back on
-        if (!gpio_get(standby_mon_pin_id)) {
+        if (!gpio_get(psu_standby_pin)) {
             // pulse the power button for ~0.5s
-            gpio_set_dir(pwr_on_pin_id, GPIO_OUT);
-            gpio_put(pwr_on_pin_id, 0);
+            gpio_set_dir(pwr_on_ribbon_pin, GPIO_OUT);
+            gpio_put(pwr_on_ribbon_pin, 0);
             sleep_ms(500);
-            gpio_set_dir(pwr_on_pin_id, GPIO_IN);
-            //io_bank0_hw->io[pwr_on_pin_id].ctrl = GPIO_FUNC_NULL << IO_BANK0_GPIO0_CTRL_FUNCSEL_LSB;
-            //gpio_set_pulls(pwr_on_pin_id, false, false);
+            gpio_set_dir(pwr_on_ribbon_pin, GPIO_IN);
+            //io_bank0_hw->io[pwr_on_ribbon_pin].ctrl = GPIO_FUNC_NULL << IO_BANK0_GPIO0_CTRL_FUNCSEL_LSB;
+            //gpio_set_pulls(pwr_on_ribbon_pin, false, false);
             
             sleep_ms(3000);
         }
@@ -1094,10 +1115,10 @@ static void retry_power_on(void) {
     const led_t combo[] = {LED_RED, LED_YELLOW};
     blink_leds(combo, 2, 200, 200, 5);
         
-    gpio_set_dir(pwr_on_pin_id, GPIO_OUT);
-    gpio_put(pwr_on_pin_id, 0);
+    gpio_set_dir(pwr_on_ribbon_pin, GPIO_OUT);
+    gpio_put(pwr_on_ribbon_pin, 0);
     sleep_ms(500);
-    gpio_set_dir(pwr_on_pin_id, GPIO_IN);
+    gpio_set_dir(pwr_on_ribbon_pin, GPIO_IN);
     sleep_ms(5000);
 }
 
@@ -1167,9 +1188,9 @@ static void show_gpio_pinout(void) {
     log_plain("PS3 Resistor Connections");
     log_plain("pulldown1_pin_id (RQ7) -> 15");
     log_plain("pulldown2_pin_id (RQ8) -> 16\r\n");
-    log_plain("pwr_on_pin_id (PS3 ribbon connector 3.3v) -> 10");
+    log_plain("pwr_on_ribbon_pin (PS3 ribbon connector 3.3v) -> 10");
     log_plain("sb_uart_rx_pin (PS3 SB_TX) -> 5");
-    log_plain("standby_mon_pin_id (PSU Standby Pin 3) -> 18");
+    log_plain("psu_standby_pin (PSU Standby Pin 3) -> 18");
     log_plain("hdd_activity_pin (PS3 HDD LED Anode) -> 22\r\n");
     log_plain("error_led_pin (Red) -> 6");
     log_plain("yellow_led_pin (Yellow) -> 2");
@@ -1270,10 +1291,10 @@ void main(void) {
     
         // Detecting stuck in while loop, doing nothing
         //main_loop_runs++;
-        if (++main_loop_runs > 10) {
+        if (++main_loop_runs > 10 && !do_glitch) {
             main_loop_runs = 0;  // reset counter
 
-            bool psu_on = gpio_get(standby_mon_pin_id);
+            bool psu_on = gpio_get(psu_standby_pin);
             if (psu_on) {
                 // TODO: Check if stuck in a crashed state, but no uart output
                 //log_printf("stuck in loop check: PSU standby HIGH → resetting Pico");
@@ -1312,7 +1333,7 @@ void main(void) {
             continue;
         }*/
     
-        bool hard_crash = (glitch_started && gpio_get(standby_mon_pin_id) == 0);
+        bool hard_crash = (glitch_started && gpio_get(psu_standby_pin) == 0);
         
         /*
         static uint32_t hang_ts = 0;
@@ -1321,7 +1342,7 @@ void main(void) {
         if (glitch_started
             && !error_detect
             && !os_booted
-            && gpio_get(standby_mon_pin_id))
+            && gpio_get(psu_standby_pin))
         {
             if (hang_ts == 0) {
                 hang_ts = now_ms();
@@ -1340,7 +1361,7 @@ void main(void) {
         if (glitch_started
             && !error_detect
             && !os_booted
-            && gpio_get(standby_mon_pin_id))
+            && gpio_get(psu_standby_pin))
         {
             if (hang_ts == 0) {
                 hang_ts = now_ms();
@@ -1373,7 +1394,8 @@ void main(void) {
         }*/
         
         if (glitch_success) {
-            set_reset_pico = true;
+            //set_reset_pico = true;
+            //error_detect = false;// this suppresses an error trigger if glitch succeeds and some thread crashes. Comment if unstable
             break;
         }
         
@@ -1404,14 +1426,14 @@ void main(void) {
             sleep_ms(15000);
             
             // ensure PSU standby is high
-            /*if (!gpio_get(standby_mon_pin_id)) {
+            /*if (!gpio_get(psu_standby_pin)) {
                 //log_printf("retry_power_on()\n");
                 retry_power_on();
             }*/
             
             /*
             while (!os_booted) {
-                if (!gpio_get(standby_mon_pin_id)) {
+                if (!gpio_get(psu_standby_pin)) {
                     log_printf("!os_booted: standby low during boot—re-pulsing\n");
                     retry_power_on();
                 }
@@ -1424,7 +1446,7 @@ void main(void) {
             hdd_activity = false;
             sleep_ms(15000);
             if (!os_booted) {
-                if (gpio_get(standby_mon_pin_id) && !hdd_activity) {
+                if (gpio_get(psu_standby_pin) && !hdd_activity) {
                     // PS3 remained powered on, but no HDD activity -> likely hung
                     log_printf("!! No HDD activity – boot likely failed");
                     reset_ps3_sequence();// force another full reset cycle
@@ -1436,13 +1458,13 @@ void main(void) {
             
             // enter loop to wait for os_booted or handle standby-off case
             while (!os_booted) {
-                if (!gpio_get(standby_mon_pin_id)) {
+                if (!gpio_get(psu_standby_pin)) {
                     log_printf("** standby off, os not booted -> retry power on");
                     retry_power_on();
                 }
                 sleep_ms(1000);
             }
-            while (!gpio_get(standby_mon_pin_id)) {
+            while (!gpio_get(psu_standby_pin)) {
                 log_printf("** standby off -> retry power on");
                 retry_power_on();
                 sleep_ms(1000);
