@@ -164,16 +164,16 @@ Log will be stored at <b>/dev_hdd0/BadHTAB.txt</b>
 
 # Additional modifications via esc0rtd3w
 
-- Automatic reboot if glitch crashes ps3
-- Enabled UART0 for pico
-- Enabled UART1 for ps3 sb_uart input
-- Monitoring PSU standby
-- Monitoring Power ribbon connector
-- 4 status LEDs
-
+Changes include:
+Automatic reboot if glitch crashes ps3
+Enabled UART0 for pico
+Enabled UART1 for ps3 sb_uart input
+Monitoring PSU standby
+Monitoring Power ribbon connector
+4 status LEDs
 The glitch is much easier to do over and over again if it crashes, and it will ;), without having to pull power cord or flip switch on power strip.
 
-Supports automatically rebooting when it detects errors. 
+Supports automatically rebooting when it detects errors. This requires sb_tx from ps3 and soldering the PSU 5v "always on" to the vsys on the pico. This way the pico will stay on when ps3 shuts off. I currently use a small toggle slide switch for that.
 
 Monitors ps3 sb_uart for messages to control pico behavior.
 
@@ -181,17 +181,28 @@ Many other changes included.
 
 There are still a few bugs to iron out, as far as sometimes the ps3 still gets into a crash condition where the pico cannot automatically recover and you must manually power cycle the ps3.
 
-Wires will need soldered to appropriate locations on ps3 and pico.
+Wires will need soldered to appropriate locations on ps3 and pico. 
+
+---------------------------------------------------------------------------------
+UART will also need to be enabled in SYSCON.
+
+Mullion SYSCONs starting with CXR713 = w 7202 02
+Mullion SYSCON CXR713120-203GB = w 4202 02
+Mullion SYSCONs starting with CXR714 = w 4202 02
+Sherwood SYSCON = w 1202 02
+
+*** DO NOT ENABLE THE EXTRA UART OUTPUTS OR GLITCH WILL CRASH WHEN RETURNING TO XMB ***
+---------------------------------------------------------------------------------
 
 PS3 Resistor Connections for glitch (only one required)
 pulldown1_pin_id (RQ7) -> GPIO15
 pulldown2_pin_id (RQ8) -> GPIO16
 
 PS3 Monitoring pins
-pwr_on_pin_id (PS3 ribbon connector 3.3v) -> GPIO10
+pwr_on_ribbon_pin (PS3 ribbon connector 3.3v) -> GPIO10
 sb_uart_rx_pin (PS3 SB_TX) -> GPIO5
-standby_mon_pin_id (PSU Standby Pin 3) -> GPIO18
-hdd_activity_pin (PS3 HDD LED Anode) -> GPIO22
+psu_standby_pin (PSU Standby Pin 3) -> GPIO18
+Optional: hdd_activity_pin (PS3 HDD LED Anode) -> GPIO22
 
 Pico status pins
 error_led_pin (Red) -> GPIO6
