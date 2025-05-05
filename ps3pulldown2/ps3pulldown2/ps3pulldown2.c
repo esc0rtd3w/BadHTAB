@@ -1240,8 +1240,6 @@ void main(void) {
         if (set_sys_clock_ready) { log_printf("set system clock: %u khz", sys_khz); }
         if (release_glitch_pin_ready) { log_printf("release glitch pin");}
         
-        sleep_ms(2000);
-        
         //last_uart0_rx_ms = to_ms_since_boot(get_absolute_time());
         //last_uart1_rx_ms = to_ms_since_boot(get_absolute_time());
     #endif
