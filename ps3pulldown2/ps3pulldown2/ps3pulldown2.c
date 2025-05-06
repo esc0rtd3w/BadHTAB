@@ -78,6 +78,7 @@ volatile bool linux_booted              = false;
 static bool set_reset_pico              = false;
 static uint32_t main_loop_runs          = 0;
 static uint32_t glitch_attempts         = 0;
+static uint32_t retry_power_on_attempts = 0;
 
 // init ready status before glitch
 static bool init_leds_ready = false;
@@ -1148,6 +1149,7 @@ static void retry_power_on(void) {
     sleep_ms(500);
     gpio_set_dir(pwr_on_ribbon_pin, GPIO_IN);
     sleep_ms(5000);
+    retry_power_on_attempts++;
 }
 
 /*#if HDD_ACTIVITY_MONITOR
@@ -1193,6 +1195,7 @@ void clear_all_flags() {
     release_glitch_pin_ready = false;
     hdd_activity = false;
     glitch_attempts = 0;
+    //retry_power_on_attempts = 0;
 }
 
 static void show_all_flags(void) {
@@ -1233,7 +1236,6 @@ void main(void) {
     // init power
     vreg_set_voltage(VREG_VOLTAGE_1_30);// !!DO NOT CHANGE!!
     set_voltage_ready = true;
-    
     sleep_ms(200);
     
     // set clock
@@ -1247,6 +1249,7 @@ void main(void) {
     gpio_deinit(pulldown2_pin_id);
     release_glitch_pin_ready = true;
 
+    // pico uart output
     #if UART_ENABLED
         UartInit();
     #endif
@@ -1259,6 +1262,7 @@ void main(void) {
         sleep_ms(50);
     #endif
 
+    // this is just hello message, instructions, and credits text
     #if UART_ENABLED
         //uint32_t get_clock = clock_get_hz(clk_sys) / 1000;
         log_plain("\r\n\r\nHello from Pico BadHTAB Glitcher ;)");
@@ -1318,27 +1322,30 @@ void main(void) {
     // core0: detect crash or hard power-down, then restart
     while (1) {
         
+        // if glitch has succeeded, then just break out of loop
+        if (glitch_success) {
+            log_printf("main loop -> glitch_success set to TRUE");
+            break;
+        }
+        
         // Detecting stuck in while loop, doing nothing
+        // normal crash usually results in only 1 or 2 main loops running
         //main_loop_runs++;
-        if (++main_loop_runs > 10 && !do_glitch) {
+        if (++main_loop_runs > 11 && !do_glitch) {
+        
             main_loop_runs = 0;  // reset counter
-
+            
             bool psu_on = gpio_get(psu_standby_pin);
             if (psu_on) {
                 // TODO: Check if stuck in a crashed state, but no uart output
                 //log_printf("stuck in loop check: PSU standby HIGH → resetting Pico");
-                //log_printf("stuck in loop check: PSU standby HIGH → resetting PS3");
-                log_printf("PSU standby is ON. Skipping ps3 reset until state can be accurately determined");
-                log_printf("You may have to manually power down the PS3 if it gets stuck");
+                log_printf("stuck in loop check: PSU standby HIGH → resetting PS3");
+                //log_printf("PSU standby is ON. Skipping ps3 reset until state can be accurately determined");
+                //log_printf("You may have to manually power down the PS3 if it gets stuck");
                 //reset_pico();
-                //set_reset_pico = true;
-                //reset_ps3_sequence();
-                if (main_loop_runs > 12) {
-                    reset_ps3_sequence();
-                    sleep_ms(15000);
-                    set_reset_pico = true;
-                    break;
-                }
+                reset_ps3_sequence();
+                sleep_ms(15000);
+                set_reset_pico = true;
             } else {
                 log_printf("stuck in loop check: PSU standby LOW → powering on PS3");
                 power_on_ps3();
@@ -1428,12 +1435,6 @@ void main(void) {
             }
         }*/
         
-        if (glitch_success) {
-            //set_reset_pico = true;
-            //error_detect = false;// this suppresses an error trigger if glitch succeeds and some thread crashes. Comment if unstable
-            break;
-        }
-        
         if (error_detect) {
             log_printf("Soft crash: beginning restart sequence");
             blink_led(LED_RED, 200, 200, 3);
@@ -1496,22 +1497,39 @@ void main(void) {
                 if (!gpio_get(psu_standby_pin)) {
                     log_printf("** standby off, os not booted -> retry power on");
                     retry_power_on();
+                    // if there have been 6 or more power on attempts, assume the ps3 needs forced off
+                    if (retry_power_on_attempts > 5) {
+                        reset_ps3_sequence();
+                        retry_power_on_attempts = 0;
+                        sleep_ms(15000);
+                        break;
+                    }
                 }
-                sleep_ms(1000);
+                sleep_ms(2000);
             }
+            
+            // if the ps3 is off (standby low), try turning it back on
             while (!gpio_get(psu_standby_pin)) {
                 log_printf("** standby off -> retry power on");
                 retry_power_on();
-                sleep_ms(1000);
+                // if there have been 6 or more power on attempts, assume the ps3 needs forced off
+                if (retry_power_on_attempts > 5) {
+                    reset_ps3_sequence();
+                    retry_power_on_attempts = 0;
+                    sleep_ms(15000);
+                    break;
+                }
+                sleep_ms(2000);
             }
             
+            // we have successfully booted into GameOS at this point
             if (os_booted && gameos_booted) {
-                blink_led(LED_BLUE, 200, 200, 5);
+                blink_led(LED_BLUE, 200, 200, 10);
                 log_printf("** restart complete. OS should be running -> Enable HEN and launch BadHTAB EBOOT");
             }
             else {
                 const led_t osvf[] = {LED_BLUE, LED_RED};
-                blink_leds(osvf, 2, 200, 200, 5);
+                blink_leds(osvf, 2, 200, 200, 10);
                 log_printf("** restart complete. OS cannot be verified running");
             }
 
@@ -1532,8 +1550,10 @@ void main(void) {
         
         //sleep_ms(2000);
         //if (set_reset_pico){ reset_pico(); }
-            
+        
+        // this should not be called under normal circumstances
         if (glitch_started && !do_glitch) {
+            log_printf("main loop -> glitch_started is TRUE and do_glitch is FALSE");
             sleep_ms(2000);
             if (set_reset_pico){ reset_pico(); }
         }
@@ -1541,12 +1561,14 @@ void main(void) {
     //sleep_ms(5000);
     //reset_pico();
     
+    // at this point, there should be no errors detected and the glitch should have been successful
     if (!error_detect && gameos_booted) {
         chase_leds(200, 100, 20);
         sleep_ms(10000);
         log_printf("Glitch should have been successful. The XMB should be loaded, and you should now have LV1 peek/poke/exec");
     }
     
+    // TODO: this lv2/linux detection probably needs adjusted
     else if (!error_detect && linux_booted) {
         chase_leds(200, 100, 20);
         sleep_ms(10000);
@@ -1559,12 +1581,16 @@ void main(void) {
         log_printf("Glitch should have been successful, but it cannot be verified -> Reset Pico Status [%d]", set_reset_pico);
     }
     
+    // there is no error, the glitch has started, and it is not currently active. The os has not loaded.
+    // Possible crash?? But can also be on XMB. Check the reset flag and if not set, there is nothing else to do.
     if (!error_detect && glitch_started && !do_glitch) {
         sleep_ms(2000);
         //reset_pico();
         if (set_reset_pico){ reset_pico(); }
     }
     
+    // this should not be called under normal circumstances
+    // if for some reason there is an error condition, try resetting pico after light show :)
     if (error_detect) {
         const led_t osvf[] = {LED_RED, LED_YELLOW};
         blink_leds(osvf, 2, 200, 200, 6);
