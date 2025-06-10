@@ -1,211 +1,182 @@
+![BadHTAB Wiring](http://ps3xploit.me/images/badhtab-wiring.png)
+
 # BadHTAB
 
-This is a **hardware-software** based hypervisor (lv1) exploit for Sony Playstation 3. Initially invented by geohot for linux. If you pull certain RAM signal to ground for a short time, write may be skipped.
-If you do it while the hypervisor is invalidating a HTAB entry, it may stay valid. Giving us a full read-write permission of a small region of memory at certain location on memory. This location may be later used by the hypervisor itself, allow us to manipulate it and then later gain full access to all of memory.
+**BadHTAB** is a **hardware–software** hypervisor (LV1) exploit for Sony PlayStation 3. Originally invented by geohot for Linux, it works by briefly pulling certain RAM signals to ground during a hypervisor HTAB invalidation—causing the write to be skipped and leaving an entry valid. This grants full read/write access to a small region of hypervisor memory, which can later be manipulated for complete memory control.
 
-This exploit has been now ported to GameOS environment, working on every models with PS3HEN. Allows full hypervisor access to non-CFW consoles for the first time ever. Gaining some of CFW-only features on non-CFW consoles.
+This GameOS-ported exploit runs on every PS3 model with PS3HEN, bringing CFW-only features to non-CFW consoles for the first time ever.
 
-This exploit contain two major components:
-  * **BadHTAB** - Software side of the exploit. released as a pkg files running on the PS3
-  * **ps3pulldown2** - Hardware side of the exploit. Raspberry Pi Pico (RP2040) based. Communicate with PS3 through USB port
+> **Warning:** Success rate is low (~5–10%). Requires soldering, patience, and skill. Not for daily-driver consoles.  
+> **Note:** Not persistent—must rerun after every reboot.  
+> **Firmware:** Supports **4.70 or later**.
 
-Unlike original linux version, GameOS have much more smaller glitch window than linux. This means automation is a must to get successful glitch while remain stable.
+---
 
-Even with that, success rate still remain low **(5-10%)**. This means this is not for daily driver, it is for user with **skill and patience** only.
+## Components
 
-This exploit **requires soldering**, soldering isn't difficult part. Getting it to boot and stable after solder is.
+- **BadHTAB** — Software side, delivered as a `.pkg` for PS3  
+- **ps3pulldown2** — Hardware side, a Raspberry Pi Pico (RP2040) glitcher over USB
 
-This exploit is based from xorloser's implementation called **Xorhack**.
+---
 
-This exploit is not persistent and must be run again after reboot.
+## Features
 
-**Supports firmware 4.70 or later**
+After a successful run:
 
-# Features
+- **`hvcall 114 everywhere`** — Map any memory region without restriction  
+- **New HVCalls**: `lv1_peek(34)` / `lv1_poke(35)` / `lv1_exec(36)`  
+- **Dump LV1 memory** — Write hypervisor RAM to file  
+- **Boot custom `lv2_kernel.fself`** — Load any LV2 kernel in FSELF format  
+- **Boot OtherOS** — Launch Petitboot to restore Linux/OtherOS  
 
-After successful run, these things will be possible:
- * **hvcall 114 everywhere** allow mapping of any memory area without restrictions
- * **New lv1_peek/poke/exec hvcall added** allow lv1 peek(34)/poke(35)/exec(36) through hvcall. See below
- * **Dumping of lv1 memory** dump lv1 memory to file
- * **Boot custom lv2_kernel.fself** allow loading of **ANY** lv2_kernel as long as it is in fself format
- * **Boot OtherOS** allow booting of petitboot bootloader, regain ability to use OtherOS and linux
+> **Note:** Using “Boot LV2/OtherOS” removes the new HVCalls (besides 114); you can reinstall them via HVCall 114.
 
+---
 
-**Note: If you use boot lv2/OtherOS features, New hvcall will be removed. However hvcall 114 everywhere remains. So you can use that to reinstall it again.**
+## New HVCalls
 
-# New hvcalls
-
-```
+```c
 // lv1_peek(34)
-// in: r3 = addr
-// out: r3 = value
+//   in:  r3 = addr
+//  out:  r3 = value
 
 // lv1_poke(35)
-// in: r3 = addr, r4 = value
-// out: r3 = 0
+//   in:  r3 = addr, r4 = value
+//  out:  r3 = 0
 
 // lv1_exec(36)
-// in: r3-r8 = args, r9 = addr
+//   in:  r3–r8 = args, r9 = addr
 ```
 
-# Installation (Hardware)
+---
+
+## Installation (Hardware)
 
 <details>
-  <summary> <b> Guides </b> </summary>
+<summary><strong>Requirements & Wiring</strong></summary>
 
-<p>
+- Raspberry Pi Pico (RP2040)  
+- 0.1 mm magnet wire  
+- Soldering tools  
 
-<b>Requirements:</b>
-  - Raspberry Pi Pico (RP2040)
-  - 0.1mm magnet wire
-  - Soldering tools
+### Glitch Wiring
 
-This guide will focused on superslim only.
+Solder two pull-down wires from the PS3 RAM resistors to the Pico:
 
-![badhtab-npx-001-solder-points](https://github.com/user-attachments/assets/81e5342c-7167-4017-ae92-1010221dfdbe)
+1. Identify the two target resistors (e.g. **RQ7** and **RQ8** on the PS3 service manual or by tracing after desoldering).  
+2. Solder one end of each wire to those resistors.  
+3. Solder the other ends to the Pico’s GPIO15 and GPIO16 (bottom-most pins).  
 
-These resistor can be found in following ways:
- - Service manual
- - Desolder the ram then trace it manually
-
-Now, time to install:
-1. Solder one wire to <b>RQ</b> resistor of each side. <b>Example:</b> first wire into <b>RQ8</b> pin of left side, then second wire into <b>RQ7</b> pin of right side
-2. Solder other side of the wire into <b>GP15/16</b> (bottommost) of pico: <b>Example:</b> first wire into <b>GP15</b>, then second wire into <b>GP16</b>
-3. Assemble the console back, then ensure that it boot and stable
-4. Install [.uf2](https://github.com/aomsin2526/BadHTAB/releases) file by holding <b>BOOTSEL</b> button while plugging your pico into your PC. New drive will appear then you can copy your .uf2 file into the drive.
-5. Installation done
-
-You will likely to find that your console doesn't boot, this is the difficult part. Here is some tips:
- - Do not let wire touch ground, motherboard or any metal. Keep wire float in the air as much as you can
- - Plug your HDD into the console, then power it on while your console is naked to rapid test if your console boots (HDD light should blink)
- - Superslim power button are very fragile, they will likely to fall off after a while. I recommends you to use screwdriver to short the button pin to ground to power it on instead.
-
-In the end, your setup may likely to end up like this:
-
-<img src="https://github.com/user-attachments/assets/20fc9f39-b23a-43f3-9067-c0c686b4bc2b" width=50% height=50%>
-
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/20fc9f39-b23a-43f3-9067-c0c686b4bc2b" alt="BadHTAB Solder Points" width="50%">
 </p>
+
+### Assembly & UF2 Flash
+
+1. Reassemble PS3 enough to power on safely.  
+2. Hold **BOOTSEL** and plug Pico into PC → new drive appears.  
+3. Copy `ps3pulldown2.uf2` from [Releases](https://github.com/aomsin2526/BadHTAB/releases) onto the Pico drive.  
+4. Remove Pico, reinsert into PS3’s USB port.
+
+> **Tips:**  
+> - Keep wires off any metal.  
+> - Test on a naked PS3 (no case) for easy access—HDD light blink verifies boot.  
+> - Super Slim power buttons are fragile—consider shorting pins with a screwdriver.
+
 </details>
 
-# Installation (Software)
+---
+
+## Installation (Software)
 
 <details>
-  <summary> <b> Guides </b> </summary>
+<summary><strong>BadHTAB .pkg & Configuration</strong></summary>
 
-<p>
-
-Now, software time.
-
-First you start by install BadHTAB pkg file into your PS3 from [Releases](https://github.com/aomsin2526/BadHTAB/releases) page.
-
-Then, config time:
+1. Install `BadHTAB.pkg` from [Releases](https://github.com/aomsin2526/BadHTAB/releases).  
 
 <details>
-  <summary> <b> Dump lv1 </b> </summary>
-<p>
+<summary><strong>Dump LV1 Memory</strong></summary>
 
-1. Create empty file and place it at <b>/dev_hdd0/BadHTAB_doDumpLv1.txt</b> Or <b>/dev_hdd0/BadHTAB_doDumpLv1_240M.txt</b> if you want to dump 240MB of memory instead of 16MB.
-2. Run the exploit
+- Create an empty file at `/dev_hdd0/BadHTAB_doDumpLv1.txt`  
+  - (For 240 MB dump, use `BadHTAB_doDumpLv1_240M.txt`)  
+- Run the exploit.
 
-</p>
 </details>
 
 <details>
-  <summary> <b> Boot lv2_kernel.fself </b> </summary>
-<p>
+<summary><strong>Boot Custom LV2 Kernel (FSELF)</strong></summary>
 
-You can convert your lv2_kernel.self to .fself like this:
-1. Decrypt it to .elf first
-2. Use make_fself.exe from Sony SDK to resign it to fself using this command: <b>make_fself.exe -u lv2_kernel.elf lv2_kernel.fself</b>
+1. Convert `lv2_kernel.self` → `lv2_kernel.fself`:
+   ```bash
+   make_fself.exe -u lv2_kernel.elf lv2_kernel.fself
+   ```
+2. Place an empty `/dev_hdd0/BadHTAB_doLoadLv2Kernel_Fself.txt`.  
+3. Copy `lv2_kernel.fself` to `/dev_flash/sys/lv2_kernel.fself`.  
+4. Graceful shutdown, then run exploit.
 
-Then:
-1. Create empty file and place it at <b>/dev_hdd0/BadHTAB_doLoadLv2Kernel_Fself.txt</b>
-2. Place your lv2_kernel.fself file at <b>/dev_flash/sys/lv2_kernel.fself</b>. <b>Tips: You can write to this through /dev_blind/. You can enable it in webman MOD. If your /dev_flash/ are full you can delete ps1emu/ps2emu/pspemu directory to clear space.</b>
-3. Shutdown your console gracefully.
-4. Run the exploit
+> **Tip:** Use `/dev_blind/` (via webman MOD) to write to `/dev_flash/` if full. Remove `ps1emu/ps2emu/pspemu` to free space.
 
-</p>
 </details>
 
 <details>
-  <summary> <b> Boot OtherOS </b> </summary>
-<p>
+<summary><strong>Boot OtherOS (Petitboot)</strong></summary>
 
-1. Create empty file and place it at <b>/dev_hdd0/BadHTAB_doOtherOS.txt</b>
-2. Place [dtbImage.ps3.fself](https://github.com/aomsin2526/ps3-petitboot-kexec-patched/releases/tag/fself) file at <b>/dev_flash/sys/dtbImage.ps3.fself</b>. <b>Tips: You can write to this through /dev_blind/. You can enable it in webman MOD. If your /dev_flash/ are full you can delete ps1emu/ps2emu/pspemu directory to clear space.</b>
-3. Shutdown your console gracefully.
-4. Run the exploit
+1. Place empty `/dev_hdd0/BadHTAB_doOtherOS.txt`.  
+2. Copy `dtbImage.ps3.fself` (from [ps3-petitboot-kexec-patched](https://github.com/aomsin2526/ps3-petitboot-kexec-patched/releases/tag/fself)) to `/dev_flash/sys/dtbImage.ps3.fself`.  
+3. Graceful shutdown, then run exploit.
 
-</p>
 </details>
 
-</p>
 </details>
 
-# Run the exploit
+---
 
-Now it is time to run the exploit.
+## Running the Exploit
 
-This exploit uses beep as status signal.
+1. Plug Pico into a PS3 USB port.  
+2. Launch **BadHTAB** pkg.  
+3. **Beep** = status indicator; log at `/dev_hdd0/BadHTAB.txt`.  
 
-Log will be stored at <b>/dev_hdd0/BadHTAB.txt</b>
+   1. One triple-beep = exploit started.  
+   2. Pico LED will blink; you’ll hear periodic beeps.  
+   3. If beeps stop or PS3 powers off → glitch failed → reboot & retry.  
+   4. Successful glitch: triple-beep, pause, then multiple triple-beeps.  
+   5. HVCalls are patched; configured action (dump/kernel/OtherOS) runs.  
+   6. If not booting LV2/OtherOS → 5 s long beep → exploit ends → back to XMB.
 
-1. Plug your pico into your PS3 USB port.
-2. Run BadHTAB
-3. You will hear one short triple beep, this mean exploit started.
-4. Then glitching process will start, led of your pico will turn on and blink briefly. You will hear beep few times every seconds.
-5. If beep simply stop or console shut off, glitching fails. <b>Reboot and try again</b>. This process may take hours to succeed.
-6. If you hear short triple beep, short wait, then triple beep again multiple times. This mean glitch succeeded.
-7. It will patch lv1, install hvcall then do what you configured at previous section.
-8. If "Boot lv2/OtherOS" are used, it should happen now.
-9. If "Boot lv2/OtherOS" aren't used, exploit will exit. You will hear 5 seconds long beep then stop.
-10. You should return to XMB now. Enjoy the exploit!
+---
 
+## Additional Modifications via esc0rtd3w
 
-# Additional modifications via esc0rtd3w
+- **Auto-reboot** on crash  
+- UART0 for Pico, UART1 for PS3 SB_UART  
+- PSU standby & ribbon-connector monitoring  
+- 4 status LEDs (error/yellow/green/blue)  
+- Optional HDD activity monitoring  
+- Improved glitch stability & auto-recover (requires PSU 5 V “always-on” to Pico + toggle switch)  
+- **SYSCON UART enables**  
+  ```
+  Mullion CXR713*:   w 7202 02
+  Mullion CXR713120: w 4202 02
+  Mullion CXR714*:   w 4202 02
+  Sherwood SYSCON:   w 1202 02
+  ```  
+  > **Warning:** Do **not** enable extra UART outputs or glitch will crash on XMB return.
 
-Changes include:
-Automatic reboot if glitch crashes ps3
-Enabled UART0 for pico
-Enabled UART1 for ps3 sb_uart input
-Monitoring PSU standby
-Monitoring Power ribbon connector
-4 status LEDs
-The glitch is much easier to do over and over again if it crashes, and it will ;), without having to pull power cord or flip switch on power strip.
+**PS3 → Pico wiring summary**  
+| Signal                     | PS3 Pin/Source                    | Pico GPIO |
+|----------------------------|-----------------------------------|-----------|
+| pulldown1 (RQ7)            | RAM resistor                      | 15        |
+| pulldown2 (RQ8)            | RAM resistor                      | 16        |
+| pwr_on_ribbon (PS3 3.3 V)  | Ribbon connector                  | 10        |
+| sb_uart_rx (PS3 SB_TX)     | Super Busy UART TX                | 5         |
+| psu_standby                | PSU standby pin 3                 | 18        |
+| (optional) hdd_activity    | HDD LED anode                     | 22        |
 
-Supports automatically rebooting when it detects errors. This requires sb_tx from ps3 and soldering the PSU 5v "always on" to the vsys on the pico. This way the pico will stay on when ps3 shuts off. I currently use a small toggle slide switch for that.
-
-Monitors ps3 sb_uart for messages to control pico behavior.
-
-Many other changes included.
-
-There are still a few bugs to iron out, as far as sometimes the ps3 still gets into a crash condition where the pico cannot automatically recover and you must manually power cycle the ps3.
-
-Wires will need soldered to appropriate locations on ps3 and pico. 
-
----------------------------------------------------------------------------------
-UART will also need to be enabled in SYSCON.
-
-Mullion SYSCONs starting with CXR713 = w 7202 02
-Mullion SYSCON CXR713120-203GB = w 4202 02
-Mullion SYSCONs starting with CXR714 = w 4202 02
-Sherwood SYSCON = w 1202 02
-
-*** DO NOT ENABLE THE EXTRA UART OUTPUTS OR GLITCH WILL CRASH WHEN RETURNING TO XMB ***
----------------------------------------------------------------------------------
-
-PS3 Resistor Connections for glitch (only one required)
-pulldown1_pin_id (RQ7) -> GPIO15
-pulldown2_pin_id (RQ8) -> GPIO16
-
-PS3 Monitoring pins
-pwr_on_ribbon_pin (PS3 ribbon connector 3.3v) -> GPIO10
-sb_uart_rx_pin (PS3 SB_TX) -> GPIO5
-psu_standby_pin (PSU Standby Pin 3) -> GPIO18
-Optional: hdd_activity_pin (PS3 HDD LED Anode) -> GPIO22
-
-Pico status pins
-error_led_pin (Red) -> GPIO6
-yellow_led_pin (Yellow) -> GPIO2
-green_led_pin (Green) -> GPIO21
-blue_led_pin (Blue) -> GPIO27
+**Pico status LEDs**  
+| Color  | GPIO |
+|--------|------|
+| Error  | 6    |
+| Yellow | 2    |
+| Green  | 21   |
+| Blue   | 27   |
