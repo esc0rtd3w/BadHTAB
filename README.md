@@ -1,4 +1,4 @@
-![BadHTAB Wiring](http://ps3xploit.me/images/badhtab-wiring.png)
+![BadHTAB Wiring](http://ps3xploit.me/images/badhtab-wiring-picow.png)
 
 # BadHTAB
 
