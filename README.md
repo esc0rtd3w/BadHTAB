@@ -152,8 +152,7 @@ Solder two pull-down wires from the PS3 RAM resistors to the Pico:
 - UART0 for Pico, UART1 for PS3 SB_UART  
 - PSU standby & ribbon-connector monitoring  
 - 4 status LEDs (error/yellow/green/blue)  
-- Optional HDD activity monitoring  
-- Improved glitch stability & auto-recover (requires PSU 5 V “always-on” to Pico + toggle switch)  
+- Optional HDD activity monitoring
 - **SYSCON UART enables**  
   ```
   Mullion CXR713*:   w 7202 02
@@ -168,10 +167,26 @@ Solder two pull-down wires from the PS3 RAM resistors to the Pico:
 |----------------------------|-----------------------------------|-----------|
 | pulldown1 (RQ7)            | RAM resistor                      | 15        |
 | pulldown2 (RQ8)            | RAM resistor                      | 16        |
-| pwr_on_ribbon (PS3 3.3 V)  | Ribbon connector                  | 10        |
-| sb_uart_rx (PS3 SB_TX)     | Super Busy UART TX                | 5         |
-| psu_standby                | PSU standby pin 3                 | 18        |
-| (optional) hdd_activity    | HDD LED anode                     | 22        |
+| pwr_on_ribbon (PS3 3.3 V)  | Power Ribbon connector            | 10        |
+| sb_uart_rx (PS3 SB_TX)     | Southbridge UART TX               | 5         |
+| psu_standby                | PSU 5VSB pin 1                    | 18        |
+| psu_always_on              | PSU ACDC_STBY pin 3               | vsys      |
+| hdd_activity (Optional)    | HDD LED anode                     | 22        |
+
+```
+         PSU PCB BOARD                PS3 PCB BOARD
+           CN101                         CNxxx
+        ┌────────────┐                ┌────────────┐
+        │ 1  2  3  4 │                │ 4  3  2  1 │
+        │[ ][ ][ ][ ]│                │[ ][ ][ ][ ]│
+        └────────────┘                └────────────┘
+          │  │  │  │                    │  │  │  │
+          │  │  │  └── ACN_DET          │  │  │  └── ACN_DET
+          │  │  └──── ACDC_STBY         │  │  └──── ACDC_STBY
+          │  └────── GND                │  └────── GND
+          └──────── 5VSB                └──────── 5VSB
+```
+
 
 **Pico status LEDs**  
 | Color  | GPIO |
