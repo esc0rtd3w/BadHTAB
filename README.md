@@ -169,8 +169,8 @@ Solder two pull-down wires from the PS3 RAM resistors to the Pico:
 | pulldown2 (RQ8)            | RAM resistor                      | 16        |
 | pwr_on_ribbon (PS3 3.3 V)  | Power Ribbon connector            | 10        |
 | sb_uart_rx (PS3 SB_TX)     | Southbridge UART TX               | 5         |
-| psu_standby                | PSU 5VSB pin 1                    | 18        |
-| psu_always_on              | PSU ACDC_STBY pin 3               | vsys      |
+| psu_always_on              | PSU 5VSB pin 1                    | vsys      |
+| psu_standby                | PSU ACDC_STBY pin 3               | 18        |
 | hdd_activity (Optional)    | HDD LED anode                     | 22        |
 
 ```
